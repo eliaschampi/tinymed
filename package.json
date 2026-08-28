@@ -1,0 +1,60 @@
+{
+	"name": "@tinymed/media",
+	"version": "0.1.0",
+	"description": "Turn untrusted encoded raster bytes into validated, deterministic, optimized encoded outputs.",
+	"keywords": [
+		"image",
+		"resize",
+		"crop",
+		"webp",
+		"avif",
+		"sharp",
+		"thumbnail",
+		"exif",
+		"srcset"
+	],
+	"license": "MIT",
+	"type": "module",
+	"packageManager": "pnpm@10.33.2",
+	"engines": {
+		"node": ">=22"
+	},
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE",
+		"CHANGELOG.md"
+	],
+	"scripts": {
+		"build": "rm -rf dist && tsc -p tsconfig.build.json",
+		"check": "tsc -p tsconfig.json --noEmit",
+		"test": "node --import tsx --test test/*.test.ts",
+		"test:watch": "node --import tsx --test --watch test/*.test.ts",
+		"bench": "node --import tsx bench/media.bench.ts",
+		"lint": "oxlint .",
+		"lint:fix": "oxlint --fix .",
+		"format": "prettier --write .",
+		"prepublishOnly": "pnpm run check && pnpm run test && pnpm run build"
+	},
+	"pnpm": {
+		"onlyBuiltDependencies": ["sharp", "esbuild"]
+	},
+	"dependencies": {
+		"sharp": "0.34.5"
+	},
+	"devDependencies": {
+		"@types/node": "^25.5.0",
+		"oxlint": "^1.79.0",
+		"prettier": "^3.8.1",
+		"tsx": "^4.23.12",
+		"typescript": "^5.9.3"
+	}
+}

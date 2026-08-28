@@ -59,10 +59,15 @@ export interface RenderResult {
 	readonly height: number;
 }
 
-let configured = false;
+let configuredConcurrency: number | undefined;
 
 /**
  * Applies process-wide libvips settings once.
+ *
+ * Sharp exposes libvips concurrency as process-wide state, not per pipeline or
+ * per processor. Repeating the same value is safe; requesting a different value
+ * later is rejected explicitly so one processor can never silently invalidate
+ * another processor's native-memory contract.
  *
  * `concurrency` is the main lever on native memory: each worker thread holds
  * its own tile buffers, so leaving it at 1 keeps peak RSS proportional to the
@@ -70,10 +75,18 @@ let configured = false;
  * one-shot uploads that are never re-processed, so caching only retains memory.
  */
 export function configureEngine(concurrency: number): void {
-	if (configured) return;
-	configured = true;
+	if (configuredConcurrency !== undefined) {
+		if (configuredConcurrency !== concurrency) {
+			throw new RangeError(
+				`libvipsConcurrency is process-wide and already configured to ${configuredConcurrency}; received ${concurrency}`
+			);
+		}
+		return;
+	}
+
 	if (concurrency > 0) sharp.concurrency(concurrency);
 	sharp.cache(false);
+	configuredConcurrency = concurrency;
 }
 
 /**

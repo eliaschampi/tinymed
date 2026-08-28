@@ -184,8 +184,20 @@ export function createScheduler(capacity: MediaCapacity): Scheduler {
 				signal?.addEventListener('abort', abortOuter, { once: true });
 				timer = setTimeout(() => controller.abort(), timeoutMs);
 				const value = await task(controller.signal);
+				const durationMs = performance.now() - startedAt;
+
+				// Native work such as a Sharp encode cannot be interrupted once started.
+				// A task that ignores the abort signal must therefore not be allowed to
+				// turn an already-lost deadline or caller cancellation back into success.
+				// The elapsed-time check also closes the event-loop race where the deadline
+				// has passed but its timer callback has not run yet.
+				if (!callerAborted && durationMs >= timeoutMs) controller.abort();
+				if (controller.signal.aborted) {
+					throw new MediaError('cancelled', 'Processing was cancelled');
+				}
+
 				completedJobs++;
-				return { value, timing: { queueWaitMs, durationMs: performance.now() - startedAt } };
+				return { value, timing: { queueWaitMs, durationMs } };
 			} catch (cause) {
 				failedJobs++;
 				// The task only ever reports `cancelled`; deciding whether that was

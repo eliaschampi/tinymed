@@ -86,12 +86,7 @@ export function resolveCapacity(overrides?: Partial<MediaCapacity>): MediaCapaci
 	return Object.freeze({
 		maxActiveJobs: intInRange(merged.maxActiveJobs, 1, 64, 'maxActiveJobs'),
 		maxQueuedJobs: intInRange(merged.maxQueuedJobs, 0, 100_000, 'maxQueuedJobs'),
-		maxQueuedBytes: intInRange(
-			merged.maxQueuedBytes,
-			0,
-			Number.MAX_SAFE_INTEGER,
-			'maxQueuedBytes'
-		),
+		maxQueuedBytes: intInRange(merged.maxQueuedBytes, 0, Number.MAX_SAFE_INTEGER, 'maxQueuedBytes'),
 		timeoutMs: intInRange(merged.timeoutMs, 1, 3_600_000, 'timeoutMs'),
 		libvipsConcurrency: intInRange(merged.libvipsConcurrency, 0, 1024, 'libvipsConcurrency')
 	});

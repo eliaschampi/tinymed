@@ -168,10 +168,7 @@ describe('cancellation and timeout', () => {
 		// A 1 ms deadline cannot survive a real decode plus encode.
 		const processor = createProcessor({ capacity: { timeoutMs: 1 } });
 		const image = await noiseImage(2400, 1800, 'jpeg');
-		await rejectsWithCode(
-			() => processor.process(image, webImageV1()),
-			'processing_timeout'
-		);
+		await rejectsWithCode(() => processor.process(image, webImageV1()), 'processing_timeout');
 		assert.equal(processor.metrics().timedOutJobs, 1);
 	});
 

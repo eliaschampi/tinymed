@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type Sharp } from 'sharp';
 import type { MediaFormat } from '../src/types.js';
 
 /**
@@ -197,7 +197,7 @@ export function nearestQuadrant(pixel: readonly [number, number, number, number]
 	return best;
 }
 
-function encode(pipeline: sharp.Sharp, format: MediaFormat, quality?: number): Promise<Buffer> {
+function encode(pipeline: Sharp, format: MediaFormat, quality?: number): Promise<Buffer> {
 	switch (format) {
 		case 'jpeg':
 			return pipeline.jpeg({ quality: quality ?? 90 }).toBuffer();

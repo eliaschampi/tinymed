@@ -1,46 +1,144 @@
 # Benchmarks
 
-## Status
+`pnpm bench` runs `bench/media.bench.ts`. The tables below are a real harness run on this development host. They are **not** the 4 GB Debian VPS gate. Re-run there before raising `maxActiveJobs` or `libvipsConcurrency`.
 
-`bench/media.bench.ts` is the canonical benchmark harness.
+```text
+real target: Debian VPS, 4 GB, same Node as production
+headline metric: peak RSS under a realistic concurrent batch
+```
 
-No production benchmark table is committed yet. Numbers from an arbitrary development host would look authoritative without answering the question that matters: **how much complete-job work fits safely on the target Debian server?**
-
-Record canonical results here only after running the harness on target-like infrastructure with the Node, Sharp/libvips, memory limit, and processor settings documented alongside them.
+---
 
 ## Method
 
-Measure complete logical jobs, not isolated resize calls.
+Measure complete logical jobs, not isolated `sharp.resize()` calls. A job includes validation, inspect, decode, orient, optional crop, every encode, and geometry verification. Those are the costs that decide capacity on a small VPS.
 
-A real job includes:
+The harness renders outputs sequentially, same as the processor. It raises `maxInputBytes` to 64 MiB so the synthetic 48 MP JPEG can reach the 50 MP decode ceiling. That override is a bench setting, not a package default.
 
-```text
-validate
-â†’ inspect metadata
-â†’ decode
-â†’ orient
-â†’ optional crop
-â†’ resize
-â†’ encode every output
-â†’ verify actual output geometry
+```sh
+pnpm bench
+pnpm bench -- --iterations 20 --active 2 --libvips 2 --batch 10
 ```
 
-An isolated `sharp.resize()` microbenchmark hides input validation, decode cost, encoder cost, queue behavior, and native peak memory. Those are exactly the costs that determine safe capacity on a small VPS.
+| Flag | Default | Meaning |
+|---|---:|---|
+| `--iterations` | 10 | repeats of inspect / web-image-v1 / crop / student-photo |
+| `--active` | 1 | `maxActiveJobs` |
+| `--libvips` | 1 | process-wide libvips threads |
+| `--batch` | 10 | sequential and concurrent batch size |
 
-The primary capacity metric is **peak RSS under realistic batch load**. Throughput is optimized only after memory behavior is bounded and predictable.
+libvips threads are process-wide. Sweep concurrency with **separate process** invocations:
 
-## Corpus
+```sh
+pnpm bench -- --active 1 --libvips 1
+pnpm bench -- --active 2 --libvips 2
+```
 
-The harness loads real raster samples from `examples/` when present and adds deterministic synthetic JPEGs at approximately:
+Corpus: one real photograph in `examples/` (3 MP portrait JPEG with EXIF) plus deterministic noise JPEGs at 12 / 24 / 48 MP. Extra near-duplicate photos do not change the contract. Flat-colour fixtures would understate encoded size and encoder work.
 
-| Geometry | Megapixels |
-|---|---:|
-| 4000Ã—3000 | 12 MP |
-| 6000Ã—4000 | 24 MP |
-| 8000Ã—6000 | 48 MP |
+| Workload | Represents |
+|---|---|
+| `inspect` | Header validation of an upload that may still be rejected |
+| `web-image-v1` | Write path: normalized + preview + thumb |
+| `web-image-v1 + crop` | Same with an extract |
+| `student-photo-v1` | Exact 420Ã—420 cover crop |
+| `batch xN` | Sequential jobs across the corpus |
+| `concurrent batch xN` | Same jobs submitted together; the queue must bound RSS |
 
-Synthetic noise is deliberate. Flat-color fixtures compress unrealistically well and understate encoded input size and encoder work.
+Latency is `durationMs + queueWaitMs`. Production pays for wait plus work. Keep the run header with any pasted table:
 
-The benchmark raises its encoded-byte ceiling to 64 MiB so the synthetic worst-case corpus can reach the package's 50 MP decoded-pixel boundary. ThhÈ\ÈH™[˜ÚX\šË[Û›Hİ™\œšYK›İH›ÙXİ[Ûˆ™XÛÛ[Y[™][Û‹‚‚ˆÈÈÛÜšÛØYÂ‚•Hİ\œ™[\›™\ÜÈYX\İ\™\Î‚‚ŸÛÜšÛØYÚ]]^\˜Ú\Ù\ÈŸKK_KK_Ÿ[œÜXİ›Ü›X]ÛY]Y]H˜[Y][ÛˆÚ]İ][Yœ˜[YH›ØÙ\ÜÚ[™ÈŸÙX‹Z[XYÙK]ŒXİ[™\™™YK[İ]]\ØYŸÙX‹Z[XYÙK]ŒH
-ÈÜ›ÜÜšY[YÜ›Ü\Èİ[™\™\š]˜]]™\ÈŸİY[\İË]ŒX^XİÜ›ÜYY[]HİÈŸÙ\]Y[X[˜]Úİ\İZ[™YÛÛ\]H›ØœÈŸÛÛ˜İ\œ™[˜]ÚØÚY[\‹Ø˜XÚÜ™\Üİ\™H[™XZÈ”ÔÈ[™\ˆ\œİİX›Z\ÜÚ[Ûˆ‚‘›Üˆ]™\HÛÜšÛØY]™\ÜÎ‚‚‹HLMK[™NHÛÛ\]KZ›Øˆ][˜ŞNÂ‹H›ØœÈ\ˆÙXÛÛ™Â‹HXZÈ›ØÙ\ÜÈ”ÔÎÂ‹H]™[[ÛÜNH[^NÂ‹Hİ[İ]]]\Ë‚‚”›ØÙ\ÜÛÜˆY]šXÜÈY][Û˜[H^ÜÙH]Y]YHØZ]]Y]YYX]HXZËÛÛ\][ÛœË˜Z[\™\Ë™Z™Xİ[ÛœË[™[Y[İ]Ë‚‚ˆÈÈ[›š[™Â‚‘Y˜][‚‚˜ÚœœH[ˆ™[˜Ú˜‚‘^XÚ]Ø\XÚ]N‚‚˜ÚœœH[ˆ™[˜ÚKHKZ]\˜][ÛœÈŒKXXİ]™HHK[Xš\ÈHKX˜]ÚL˜‚HØ\XÚ]HÚ[[™Ù\‚‚˜ÚœœH[ˆ™[˜ÚKHKZ]\˜][ÛœÈŒKXXİ]™HˆK[Xš\ÈHKX˜]ÚŒ˜‚‘È›İÛÛ\\™HÛÈ[œÈ]Ú[™ÙYÛÜœ\Ë›ÙKÔÚ\œ™\œÚ[ÛœË›ØÙ\ÜÛÜˆ[Z]ËÜˆÜİY[[ÜHÚ]İ]™XÛÜ™[™ÈÜÙHY™™\™[˜Ù\Ë‚‚ˆÈÈ\™Ù][ZÙH›ØÙY\™B‚‘›ÜˆH™\İ[ÛÜÙY\[™Î‚‚ŒKˆ\ÙHHØ[YH›ÙHXZ›Üˆ™\œÚ[Ûˆ\È›ÙXİ[Û‹‚Œ‹ˆ[œİ[œ›ÛHHØÚÙš[K‚ŒËˆ™XÛÜ™›ÙXÚ\œ[™Xš\È™\œÚ[ÛœÈš[YHH\›™\ÜË‚ˆ\HHØ[YHÛÛZ[™\‹ØÙÜ›İ\Üˆ”ÈY[[ÜHÛÛœİ˜Z[\È›ÙXİ[Û‹‚Kˆ[ˆÛ˜ÙHÈØ\›Hš[\Ş\İ[H[™˜]]™HXœ˜\HØY[™Ë‚‹ˆ[ˆHYX\İ\™YÛÜšÛØY][\H[Y\Ë‚Ëˆ™XÛÜ™HÛÜœİXZÈ”ÔÈ[™™\™\Ù[]]™HLÜMKÜNK‚ˆ[œÜXİİ]][Y[œÚ[ÛœÈ[™š[HÚ^™\È›ÜˆH™X[ÛÜœ\Ë‚KˆÛÛ\\™H[XYÙH]X[]Hš\İX[H™Y›Ü™HXØÙ\[™ÈHÛÙXËÜ]X[]HÚ[™ÙK‚ŒLˆ™\X]Y\ˆÚ[™Ú[™ÈXİ]™H›ØœÈÜˆXš\ÈÛÛ˜İ\œ™[˜ŞK‚‚’Yˆ]˜Z[X›K™XÛÜ™ÙÜ›İ\XZÈY[[ÜH\ÈÙ[\È›ØÙ\ÜÈ”ÔÎÈ˜]]™H[ØØ]ÜœÈ[™›ØÙ\ÜÈÛ[™ÈØ[ˆXZÙHÚÜXZÜÈ\™ÈØœÙ\™Hœ›ÛH˜]˜TØÜš\[Û™K‚‚ˆÈÈØ\XÚ]HXÚ\Ú[Û‚‚”İ\œ›ÛN‚‚˜^›X^Xİ]™R›ØœÈHB›Xš\ĞÛÛ˜İ\œ™[˜ŞHHB˜‚’[˜Ü™X\ÙHÛ›HÚ[ˆ\™Ù]YX\İ\™[Y[ÈÚİÈ[\ÙYØY™HØ\XÚ]K‚‚H›İYÚ]ØZ[ˆ\È™Z™XİYYˆ]XZÙ\ÈXZÈY[[ÜHY™šXİ[È™YXİÜˆ\Ú\È™X[\İXÈ˜]Ú\ÈÛÜÙHÈHÜİ[Z]ˆHÛX[”ÈÚİ[˜Z[Ú]›İ[™Y˜XÚÜ™\Üİ\™H˜]\ˆ[ˆÚ[ˆHŞ[]XÈ›İYÚ]Ú\[™]\ˆ™HÚ[YHHÓÓHÚ[\‹‚‚ˆÈÈ[™Ú[™HÚ[[™Ù\ˆØ]B‚‘È›İÚ\Ú\œ[™HÚ[[™Ù\ˆ[™Ú[™HÙÙ]\‹‚‚H™\XÙ[Y[]\İš\œİXÚY]™H™Z]š[Ü˜[\š]HÛˆHØ[YHÛÜœ\Ë™XÚ\\Ë[Z]ËX[›Ü›YY[œ]ËÜšY[][Û‹ØÜ›ÜØ\Ù\Ë[™İ]]™\]Z\™[Y[Ëˆ[ˆ]]\İ[[Ûœİ˜]H]X\İÛ™HX]\šX[[\›İ™[Y[‚‚˜^HÌ	HYÚ\ˆÛÛ\]KZ›Øˆ›İYÚ]“Ô‚HÌ	HİÙ\ˆMHÛÛ\]KZ›Øˆ][˜ŞB“Ô‚HIHİÙ\ˆXZÈ”ÔÂ˜‚Ú]›ÈYX[š[™Ù[™YÜ™\ÜÚ[Ûˆ[‚‚‹Hš\İX[]X[]NÂ‹Hİ]]]HÚ^™NÂ‹HÜ›ÜÛÜšY[][ÛˆÛÜœ™Xİ™\ÜÎÂ‹HX[›Ü›YYZ[œ][™[™ÎÂ‹HXšX[ˆ[œİ[][ÛÂ‹HÜ\˜][Û˜[ÛÛ\^]K‚‚HZXÜ›Ø™[˜ÚX\šÈÚ[ˆ\È›İİY™šXÚY[‚‚ˆÈÈ™\İ[È[\]B‚•Ú[ˆ\™Ù]YX\İ\™[Y[È\™H]˜Z[X›K™XÛÜ™[HÚ]H[š\›Û›Y[‚‚˜^™]N‚šÜİÈÔN‚›Y[[ÜH[Z]‚“›ÙN‚”Ú\œ‚›Xš\Î‚›X^Xİ]™R›ØœÎ‚›Xš\ĞÛÛ˜İ\œ™[˜ŞN‚š]\˜][ÛœÎ‚˜˜]Ú‚˜‚•[ˆY‚‚ŸÛÜšÛØYLMHNH›ØœËÜÈXZÈ”ÔÈÛÜNHŸKK_KKNŸKKNŸKKNŸKKNŸKKNŸKKNŸŸ[œÜXİ8 %8 %8 %8 %8 %8 %ŸÙX‹Z[XYÙK]ŒH8 %8 %8 %8 %8 %8 %ŸÙX‹Z[XYÙK]ŒH
-ÈÜ›Ü8 %8 %8 %8 %8 %8 %ŸİY[\İË]ŒH8 %8 %8 %8 %8 %8 %Ÿ˜]Ú8 %8 %8 %8 %8 %8 %ŸÛÛ˜İ\œ™[˜]Ú8 %8 %8 %8 %8 %8 %‚“™]™\ˆ™\Ù\™HH™\İ[Y\ˆÚ[™Ú[™ÈH™[˜ÚX\šÈÛÛ˜XİÚ]İ]X\šÚ[™È]\ÈHY™™\™[[‹‚
+```text
+node <version> | sharp <version> | libvips <version>
+activeJobs=1 libvipsConcurrency=1 iterations=10
+```
+
+---
+
+## Recorded run â€” 2026-08-28
+
+Host: Deepin 23.1, Linux 6.12.20 x86_64, 16 cores, 11 GiB RAM. Local Sharp/libvips, not a 4 GB cgroup.
+
+```text
+node v22.22.2 | sharp 0.35.4 | libvips 8.18.6
+activeJobs=1 libvipsConcurrency=1 iterations=10
+```
+
+### Corpus
+
+| sample | MP | encoded |
+|---|---:|---:|
+| photo.jpg | 3.0 | 0.4 MiB |
+| synthetic-4000x3000 | 12.0 | 8.9 MiB |
+| synthetic-6000x4000 | 24.0 | 17.8 MiB |
+| synthetic-8000x6000 | 48.0 | 35.5 MiB |
+
+`inspect` / `web-image-v1` / crop / student-photo use `photo.jpg`. Batch workloads walk the whole corpus, so their p95 is the 24â€“48 MP tail.
+
+### Latency and RSS
+
+| workload | jobs | p50 | p95 | p99 | jobs/s | peak RSS | loop p99 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| inspect | 10 | 0.7 ms | 16.4 ms | 16.4 ms | 400.61 | 488.5 MiB | 16.4 ms |
+| web-image-v1 | 10 | 494.6 ms | 503.9 ms | 503.9 ms | 2.03 | 374.4 MiB | 2.1 ms |
+| web-image-v1 + crop | 10 | 459.7 ms | 486.4 ms | 486.4 ms | 2.17 | 393.1 MiB | 2.1 ms |
+| student-photo-v1 | 10 | 38.5 ms | 56.4 ms | 56.4 ms | 24.11 | 388.8 MiB | 1.9 ms |
+| batch x10 | 10 | 2157.8 ms | 2351.5 ms | 2351.5 ms | 0.60 | 476.7 MiB | 1.9 ms |
+| concurrent batch x10 | 10 | 9518.8 ms | 16397.9 ms | 16397.9 ms | 0.61 | 486.1 MiB | 1.8 ms |
+
+Peak RSS overall: **488.5 MiB**. Concurrent batch did not raise RSS above sequential batch: `maxActiveJobs` stayed 1, so extra latency is queue wait (peak 14268.0 ms), not overlapping native work. The batch cycle is one 3 MP photo plus the 12â€“48 MP synthetics.
+
+```text
+completed=50  failed=0  rejected=0  timedOut=0
+peakQueueWait=14268.0ms  peakQueuedBytes=133.9MiB
+cgroup peak RSS=not measured on this host
+```
+
+### Output sizes (web-image-v1)
+
+Actual encoded geometry, not the requested box.
+
+| sample | MP | normalized | preview | thumb |
+|---|---:|---|---|---|
+| photo.jpg | 3.0 | 1500Ã—2000 318 KiB | 1200Ã—1600 152 KiB | 360Ã—480 23 KiB |
+| synthetic-4000x3000 | 12.0 | 2560Ã—1920 2142 KiB | 1600Ã—1200 848 KiB | 480Ã—360 16 KiB |
+| synthetic-6000x4000 | 24.0 | 2560Ã—1707 1480 KiB | 1600Ã—1067 655 KiB | 480Ã—320 2 KiB |
+| synthetic-8000x6000 | 48.0 | 2560Ã—1920 1398 KiB | 1600Ã—1200 601 KiB | 480Ã—360 1 KiB |
+
+Portrait `photo.jpg` preview is **1200w**, not 1600w. That is why `srcset` must use `output.width`.
+
+Synthetic thumbs of 1â€“2 KiB are a noise-corpus artifact: incompressible source becomes near-uniform after a 480-long-edge resize. Real photographs will not look like that. Do not treat those thumb sizes as a preset quality signal.
+
+Raising `maxActiveJobs` multiplies the whole job. Raising `libvipsConcurrency` multiplies tile buffers inside one job. Do not add a worker pool, a cache, or a second engine to chase a laptop number.
+
+---
+
+## Still required on the VPS
+
+| Measurement | Why |
+|---|---|
+| Concurrent-batch process peak RSS | Decides whether the box can share OMR + Postgres |
+| Concurrent-batch cgroup peak RSS | Allocator / extra-process cost |
+| Event-loop delay during batch | Whether native work starves HTTP |
+| Queue rejections under burst | Whether the byte budget binds before RAM |
+| 48 MP job RSS at active=1, libvips=1 | Worst-case single upload |
+| Same job at active=2 or libvips=2 | Raise only if RSS still fits 4 GB |
+| Visual review of crop + EXIF 6 | Geometry, not just timing |
+| Image work while OMR is active | Coedula shares the box |
+
+---
+
+## Engine challenger
+
+Do not install `@napi-rs/image` beside Sharp in the production package.
+
+A replacement uses the same corpus, recipes, limits, and output requirements, on the target host, and must show behavioural parity plus at least one of:
+
+```text
+>= 30% higher complete-job throughput
+OR >= 30% lower p95 complete-job latency
+OR >= 25% lower peak RSS
+```
+
+with no meaningful regression in quality, output bytes, crop/EXIF correctness, malformed-input handling, Debian install, or operational complexity.
+
+Do not support two production engines. The public API stays unchanged.

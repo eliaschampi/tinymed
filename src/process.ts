@@ -72,7 +72,7 @@ export function createProcessor(config: MediaProcessorConfig = {}): MediaProcess
 				);
 			}
 			if (input.byteLength > limits.maxInputBytes) {
-				fail('input_too_lare', 'Encoded input exceeds the maximum allowed size', {
+				fail('input_too_large', 'Encoded input exceeds the maximum allowed size', {
 					byteLength: input.byteLength,
 					limit: limits.maxInputBytes
 				});

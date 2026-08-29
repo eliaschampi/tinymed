@@ -107,7 +107,9 @@ async function noise(width: number, height: number): Promise<Buffer> {
 		seed = (seed * 1103515245 + 12345) & 0x7fffffff;
 		raw[i] = (seed >>> 16) & 0xff;
 	}
-	return sharp(raw, { raw: { width, height, channels: 3 } }).jpeg({ quality: 88 }).toBuffer();
+	return sharp(raw, { raw: { width, height, channels: 3 } })
+		.jpeg({ quality: 88 })
+		.toBuffer();
 }
 
 interface Stats {
@@ -133,7 +135,9 @@ const ms = (value: number): string => `${value.toFixed(1)}ms`;
 const mib = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(1)}MiB`;
 
 /** Peak RSS observed while `run` executes; the primary capacity metric. */
-async function measure<T>(run: () => Promise<T>): Promise<{ value: T; peakRss: number; ms: number }> {
+async function measure<T>(
+	run: () => Promise<T>
+): Promise<{ value: T; peakRss: number; ms: number }> {
 	let peakRss = process.memoryUsage.rss();
 	const poll = setInterval(() => {
 		peakRss = Math.max(peakRss, process.memoryUsage.rss());
@@ -315,9 +319,7 @@ async function main(): Promise<void> {
 
 	// Same batch submitted at once: exercises the queue and shows whether peak RSS
 	// stays bounded by the scheduler rather than by arrival rate.
-	results.push(
-		await runWorkload(`concurrent batch x${options.batch}`, processor, batchJobs, true)
-	);
+	results.push(await runWorkload(`concurrent batch x${options.batch}`, processor, batchJobs, true));
 
 	console.log('\n## results');
 	console.log(

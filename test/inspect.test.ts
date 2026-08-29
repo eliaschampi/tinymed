@@ -113,6 +113,17 @@ describe('structural validation', () => {
 		await rejectsWithCode(() => processor.inspect(large), 'input_too_large');
 	});
 
+	it('enforces the same byte ceiling on process before scheduler admission', async () => {
+		const processor = createProcessor({ limits: { maxInputBytes: 1024 } });
+		const large = await noiseImage(300, 300, 'jpeg');
+		await rejectsWithCode(
+			() => processor.process(large, { outputs: [{ key: 'o', format: 'webp' }] }),
+			'input_too_large'
+		);
+		assert.equal(processor.metrics().completedJobs, 0);
+		assert.equal(processor.metrics().failedJobs, 0);
+	});
+
 	it('enforces the decoded pixel ceiling', async () => {
 		const processor = createProcessor({ limits: { maxPixels: 1000 } });
 		const image = await solidImage(100, 100, 'jpeg');

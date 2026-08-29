@@ -39,6 +39,31 @@ describe('terminal cancellation semantics', () => {
 		assert.equal(scheduler.metrics().completedJobs, 0);
 		assert.equal(scheduler.metrics().failedJobs, 1);
 	});
+
+	it('cannot return success if the caller aborted between dequeue and execution', async () => {
+		const scheduler = createScheduler({ ...DEFAULT_CAPACITY, maxActiveJobs: 1, timeoutMs: 1_000 });
+
+		let release!: () => void;
+		const first = scheduler.run(
+			{ cost: 1 },
+			() => new Promise<string>((resolve) => (release = () => resolve('first')))
+		);
+
+		const controller = new AbortController();
+		const second = scheduler.run(
+			{ cost: 1, signal: controller.signal },
+			async () => 'late-success'
+		);
+
+		release();
+		queueMicrotask(() => controller.abort());
+
+		await first;
+		await assert.rejects(second, (error: unknown) => isMediaError(error, 'cancelled'));
+		assert.equal(scheduler.metrics().completedJobs, 1);
+		assert.equal(scheduler.metrics().failedJobs, 1);
+		assert.equal(scheduler.metrics().timedOutJobs, 0);
+	});
 });
 
 describe('process-wide engine configuration', () => {

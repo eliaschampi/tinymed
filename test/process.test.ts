@@ -254,7 +254,12 @@ describe('encoding', () => {
 	});
 
 	it('preserves alpha into formats that support it', async () => {
-		const transparent = await quadrantImage({ width: 100, height: 100, format: 'png', alpha: true });
+		const transparent = await quadrantImage({
+			width: 100,
+			height: 100,
+			format: 'png',
+			alpha: true
+		});
 		const result = await processor.process(transparent, {
 			outputs: [
 				{ key: 'png', format: 'png', width: 50 },
@@ -360,10 +365,7 @@ describe('recipe validation', () => {
 			}
 		];
 		for (const recipe of invalid) {
-			await rejectsWithCode(
-				() => processor.process(image, recipe as never),
-				'invalid_recipe'
-			);
+			await rejectsWithCode(() => processor.process(image, recipe as never), 'invalid_recipe');
 		}
 	});
 
@@ -411,10 +413,7 @@ describe('job atomicity', () => {
 		const jpeg = await noiseImage(300, 300, 'jpeg');
 		const truncated = jpeg.subarray(0, Math.floor(jpeg.length * 0.3));
 		const processor = createProcessor();
-		await rejectsWithCode(
-			() => processor.process(truncated, webImageV1()),
-			'invalid_image'
-		);
+		await rejectsWithCode(() => processor.process(truncated, webImageV1()), 'invalid_image');
 	});
 });
 

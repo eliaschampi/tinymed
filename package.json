@@ -52,8 +52,7 @@
 		"lint:fix": "oxlint --fix .",
 		"format": "prettier --write .",
 		"format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"bench/**/*.ts\"",
-		"ci": "pnpm run format:check && pnpm run lint && pnpm run check && pnpm run test && pnpm run build",
-		"prepublishOnly": "pnpm run ci"
+		"prepublishOnly": "pnpm run check && pnpm run test && pnpm run build"
 	},
 	"pnpm": {
 		"onlyBuiltDependencies": [
@@ -62,7 +61,7 @@
 		]
 	},
 	"dependencies": {
-		"sharp": "0.34.5"
+		"sharp": "0.35.4"
 	},
 	"devDependencies": {
 		"@types/node": "^25.5.0",

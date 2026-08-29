@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type Sharp } from 'sharp';
 import { fail, wrapUnknown } from '../errors.js';
 import { DEFAULT_QUALITY } from '../limits.js';
 import type { MediaCrop, MediaFit, MediaFormat } from '../types.js';
@@ -136,7 +136,7 @@ export async function renderOutput(
 	}
 }
 
-function encode(pipeline: sharp.Sharp, plan: RenderPlan, quality: number): sharp.Sharp {
+function encode(pipeline: Sharp, plan: RenderPlan, quality: number): Sharp {
 	switch (plan.format) {
 		case 'jpeg':
 			return pipeline.jpeg({

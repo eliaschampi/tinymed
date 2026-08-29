@@ -42,6 +42,8 @@ interface Waiter {
 	readonly signal: AbortSignal | undefined;
 }
 
+const isAborted = (signal: AbortSignal | undefined): boolean => signal?.aborted === true;
+
 export function createScheduler(capacity: MediaCapacity): Scheduler {
 	let activeJobs = 0;
 	let queuedBytes = 0;
@@ -121,7 +123,7 @@ export function createScheduler(capacity: MediaCapacity): Scheduler {
 		): Promise<{ value: T; timing: JobTiming }> {
 			const { cost, signal } = request;
 			const timeoutMs = request.timeoutMs ?? capacity.timeoutMs;
-			if (signal?.aborted === true) {
+			if (isAborted(signal)) {
 				fail('cancelled', 'Processing was cancelled');
 			}
 
@@ -142,7 +144,14 @@ export function createScheduler(capacity: MediaCapacity): Scheduler {
 			let timer: NodeJS.Timeout | undefined;
 
 			try {
+				// Abort events do not replay. Attach first, then read current state, so a
+				// queued abort that wins the admission race cannot start native work.
 				signal?.addEventListener('abort', abortOuter, { once: true });
+				if (isAborted(signal)) abortOuter();
+				if (controller.signal.aborted) {
+					throw new MediaError('cancelled', 'Processing was cancelled');
+				}
+
 				timer = setTimeout(() => controller.abort(), timeoutMs);
 				const value = await task(controller.signal);
 				const durationMs = performance.now() - startedAt;

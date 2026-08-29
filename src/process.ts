@@ -28,13 +28,7 @@ import type {
 	MediaSource
 } from './types.js';
 
-/**
- * A processor owns one capacity budget and one limit set.
- *
- * Instances exist so an application can isolate workloads — for example a
- * responsive interactive upload path and a patient bulk backfill — without one
- * starving the other.
- */
+/** One limit set and one JavaScript scheduling budget. */
 export interface MediaProcessor {
 	/** Validates bytes and returns authoritative facts. Decodes no pixels. */
 	inspect(input: MediaInput, options?: MediaInspectOptions): Promise<MediaSource>;
@@ -70,15 +64,15 @@ export function createProcessor(config: MediaProcessorConfig = {}): MediaProcess
 		async process(input, recipe, options = {}) {
 			throwIfAborted(options.signal);
 
-			// Cheap rejection before admission and before any encode: a bad request
-			// must not reserve a slot, and a source output that fits already wastes
-			// an encode if its passthrough is ruled out here.
 			const planned = planRecipe(recipe, limits);
 			if (!(input instanceof Uint8Array) || input.byteLength === 0) {
-				fail('invalid_image', input instanceof Uint8Array ? 'Input is empty' : 'Input must be a Uint8Array');
+				fail(
+					'invalid_image',
+					input instanceof Uint8Array ? 'Input is empty' : 'Input must be a Uint8Array'
+				);
 			}
 			if (input.byteLength > limits.maxInputBytes) {
-				fail('input_too_large', 'Encoded input exceeds the maximum allowed size', {
+				fail('input_too_lare', 'Encoded input exceeds the maximum allowed size', {
 					byteLength: input.byteLength,
 					limit: limits.maxInputBytes
 				});
@@ -119,23 +113,13 @@ export function createProcessor(config: MediaProcessorConfig = {}): MediaProcess
 
 interface RenderContext {
 	readonly hasIccProfile: boolean;
-	/** Blocks byte passthrough, because outputs must not carry source metadata. */
 	readonly hasStrippableMetadata: boolean;
-	/** Source holds full-resolution chroma, so JPEG outputs should keep it. */
 	readonly fullChroma: boolean;
 	readonly maxPixels: number;
 	readonly signal: AbortSignal;
 }
 
-/**
- * Produces every requested output, sequentially.
- *
- * Sequential execution is deliberate. `Promise.all` over several outputs looks
- * like one job but starts several independent native pipelines, each holding a
- * decoded frame, so peak memory scales with output count instead of with the
- * configured job limit. Cancellation is checked between outputs; an in-flight
- * native encode cannot be interrupted, so the granularity is one output.
- */
+/** Sequential output rendering keeps native decoded-frame memory bounded per logical job. */
 async function renderAll(
 	input: MediaInput,
 	source: MediaSource,
@@ -143,7 +127,6 @@ async function renderAll(
 	specs: readonly PlannedOutput[],
 	context: RenderContext
 ): Promise<MediaOutput[]> {
-	// Geometry the outputs are measured against, after orientation and crop.
 	const baseWidth = crop?.width ?? source.orientedWidth;
 	const baseHeight = crop?.height ?? source.orientedHeight;
 
@@ -165,18 +148,10 @@ async function renderAll(
 			maxPixels: context.maxPixels
 		};
 
-		// Sequential by design: see the function doc. Parallelising here is the
-		// specific defect this package replaces.
-		// oxlint-disable-next-line no-await-in-loop
+		// oxlint-disable-next-line no-await-in-loop -- parallel outputs multiply native memory.
 		const rendered = await renderOutput(input, plan, outputs.length === 0);
 
-		// A `'source'` output that needed no geometry change is a candidate for
-		// passing the original bytes through: if re-encoding an already-optimized
-		// upload saves nothing, the re-encode only discards quality.
-		//
-		// Passthrough is only permitted when the source carries no EXIF or colour
-		// profile. Returning the original bytes skips the strip step, so allowing it
-		// for a camera photo would republish GPS coordinates and device identifiers.
+		// Source passthrough is safe only when geometry and metadata require no rewrite.
 		const untouched =
 			spec.format === 'source' &&
 			crop === null &&
@@ -225,12 +200,6 @@ async function renderAll(
 	return outputs;
 }
 
-/**
- * Reports an abort as `cancelled`.
- *
- * The scheduler owns the distinction between a caller abort and its own
- * deadline, so this never guesses at a timeout.
- */
 function throwIfAborted(signal: AbortSignal | undefined): void {
 	if (signal?.aborted === true) fail('cancelled', 'Processing was cancelled');
 }

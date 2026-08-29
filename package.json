@@ -19,6 +19,14 @@
 	"engines": {
 		"node": ">=22"
 	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/eliaschampi/tinymed.git"
+	},
+	"homepage": "https://github.com/eliaschampi/tinymed#readme",
+	"bugs": {
+		"url": "https://github.com/eliaschampi/tinymed/issues"
+	},
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",
@@ -29,9 +37,10 @@
 	"types": "./dist/index.d.ts",
 	"files": [
 		"dist",
+		"docs",
 		"README.md",
-		"LICENSE",
-		"CHANGELOG.md"
+		"CHANGELOG.md",
+		"LICENSE"
 	],
 	"scripts": {
 		"build": "rm -rf dist && tsc -p tsconfig.build.json",
@@ -42,10 +51,15 @@
 		"lint": "oxlint .",
 		"lint:fix": "oxlint --fix .",
 		"format": "prettier --write .",
-		"prepublishOnly": "pnpm run check && pnpm run test && pnpm run build"
+		"format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"bench/**/*.ts\"",
+		"ci": "pnpm run format:check && pnpm run lint && pnpm run check && pnpm run test && pnpm run build",
+		"prepublishOnly": "pnpm run ci"
 	},
 	"pnpm": {
-		"onlyBuiltDependencies": ["sharp", "esbuild"]
+		"onlyBuiltDependencies": [
+			"sharp",
+			"esbuild"
+		]
 	},
 	"dependencies": {
 		"sharp": "0.34.5"

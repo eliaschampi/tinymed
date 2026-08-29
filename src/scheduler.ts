@@ -1,41 +1,27 @@
 import { MediaError, fail } from './errors.js';
 import type { MediaCapacity } from './limits.js';
 
-/**
- * Bounded FIFO scheduler for logical image jobs.
- *
- * One source image plus every output requested from it is one job. Admission is
- * gated on two independent budgets — waiting job count and waiting encoded
- * bytes — because a queue that only counts callbacks says nothing about the
- * memory those callbacks retain. Ten queued 20 MB uploads are 200 MB of live
- * buffers regardless of how few promises represent them.
- */
-
-/** Non-sensitive counters for logging and benchmarking. */
+/** Bounded FIFO scheduler for logical image jobs. */
 export interface MediaMetrics {
 	readonly activeJobs: number;
 	readonly queuedJobs: number;
 	readonly queuedBytes: number;
 	readonly completedJobs: number;
 	readonly failedJobs: number;
-	/** Jobs refused at admission because a budget was full. */
 	readonly rejectedJobs: number;
 	readonly timedOutJobs: number;
-	/** Longest queue wait observed, in milliseconds. */
 	readonly peakQueueWaitMs: number;
 	readonly peakQueuedBytes: number;
 }
 
-/** Timing captured for one executed job. */
 export interface JobTiming {
 	readonly queueWaitMs: number;
 	readonly durationMs: number;
 }
 
 export interface JobRequest {
-	/** Encoded bytes this job retains while waiting; charged to the byte budget. */
+	/** Encoded bytes retained while this job waits. */
 	readonly cost: number;
-	/** Per-job execution deadline. Falls back to the processor default. */
 	readonly timeoutMs?: number | undefined;
 	readonly signal?: AbortSignal | undefined;
 }
@@ -68,13 +54,7 @@ export function createScheduler(capacity: MediaCapacity): Scheduler {
 
 	const waiting: Waiter[] = [];
 
-	/**
-	 * Promotes waiters while slots are free, in arrival order.
-	 *
-	 * The slot is reserved here, synchronously, before the waiter's continuation
-	 * is scheduled. Resolving first and letting the resumed job increment the
-	 * counter would let several waiters claim the same slot.
-	 */
+	// Reserve the slot before resolving a waiter; resumed microtasks must not oversubscribe it.
 	const pump = (): void => {
 		while (activeJobs < capacity.maxActiveJobs && waiting.length > 0) {
 			const next = waiting.shift();
@@ -86,19 +66,8 @@ export function createScheduler(capacity: MediaCapacity): Scheduler {
 		}
 	};
 
-	/**
-	 * Reserves a slot, or enqueues until one frees up.
-	 *
-	 * Returns `null` when a slot was taken immediately, so the caller can skip the
-	 * `await` entirely. That matters for correctness as much as speed: awaiting an
-	 * already-resolved promise yields to the microtask queue, and every job
-	 * admitted in that window would observe a stale `activeJobs` and overshoot the
-	 * limit. Admission therefore always decides and reserves in one synchronous
-	 * turn.
-	 */
+	// Admission and slot reservation happen synchronously to avoid a microtask race.
 	const admit = (cost: number, signal: AbortSignal | undefined): Promise<void> | null => {
-		// Jumping the queue would starve waiters, so the fast path also requires an
-		// empty queue.
 		if (activeJobs < capacity.maxActiveJobs && waiting.length === 0) {
 			activeJobs++;
 			return null;
@@ -124,8 +93,6 @@ export function createScheduler(capacity: MediaCapacity): Scheduler {
 				cost,
 				start: resolve,
 				reject,
-				// A caller who gives up while waiting must release its byte budget
-				// immediately rather than at its eventual turn.
 				onAbort:
 					signal === undefined
 						? null
@@ -160,19 +127,13 @@ export function createScheduler(capacity: MediaCapacity): Scheduler {
 
 			const enqueuedAt = performance.now();
 			const pending = admit(cost, signal);
-			// From here the slot is reserved, so every path must reach the `finally`
-			// that releases it.
 			if (pending !== null) await pending;
 
 			const startedAt = performance.now();
 			const queueWaitMs = startedAt - enqueuedAt;
 			if (queueWaitMs > peakQueueWaitMs) peakQueueWaitMs = queueWaitMs;
 
-			// The deadline covers execution only. Queue wait is reported separately
-			// so a saturated queue is never misread as slow image processing.
 			const controller = new AbortController();
-			// Recording the caller abort as it happens is more reliable than reading
-			// `signal.aborted` afterwards, and keeps the two abort sources distinct.
 			let callerAborted = false;
 			const abortOuter = (): void => {
 				callerAborted = true;
@@ -186,11 +147,7 @@ export function createScheduler(capacity: MediaCapacity): Scheduler {
 				const value = await task(controller.signal);
 				const durationMs = performance.now() - startedAt;
 
-				// Native work such as a Sharp encode cannot be interrupted once started.
-				// A task that ignores the abort signal must therefore not be allowed to
-				// turn an already-lost deadline or caller cancellation back into success.
-				// The elapsed-time check also closes the event-loop race where the deadline
-				// has passed but its timer callback has not run yet.
+				// Native work can outlive an abort signal; success is checked again at the result boundary.
 				if (!callerAborted && durationMs >= timeoutMs) controller.abort();
 				if (controller.signal.aborted) {
 					throw new MediaError('cancelled', 'Processing was cancelled');
@@ -200,8 +157,6 @@ export function createScheduler(capacity: MediaCapacity): Scheduler {
 				return { value, timing: { queueWaitMs, durationMs } };
 			} catch (cause) {
 				failedJobs++;
-				// The task only ever reports `cancelled`; deciding whether that was
-				// the caller or our own deadline belongs here, where both are known.
 				if (controller.signal.aborted && !callerAborted) {
 					timedOutJobs++;
 					throw new MediaError('processing_timeout', 'Image processing timed out', { timeoutMs });
